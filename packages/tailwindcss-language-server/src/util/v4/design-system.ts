@@ -65,11 +65,11 @@ function createLoader<T>({
       // locally, then fall back to the built-in plugins that we know about.
       if (resourceType === 'plugin' && id in plugins) {
         console.log('Loading bundled plugin for: ', id)
-        return await plugins[id]()
+        return await plugins[id as keyof typeof plugins]()
       }
 
       // This checks for an error thrown by enhanced-resolve
-      if (err && typeof err.details === 'string') {
+      if (err && typeof err === 'object' && 'details' in err && typeof err.details === 'string') {
         let details: string = err.details
         let pattern = /^resolve '([^']+)'/
         let match = details.match(pattern)
@@ -181,7 +181,7 @@ export async function loadDesignSystem(
         if (isFallback && id in assets) {
           console.error(`Loading fallback stylesheet for: ${id}`)
 
-          return { base, content: assets[id] }
+          return { base, content: assets[id as keyof typeof assets] }
         }
 
         console.error(`Unable to load stylesheet: ${id}`, err)
@@ -228,7 +228,7 @@ export async function loadDesignSystem(
 
     compile(classes: string[]): AstNode[][] {
       // 1. Compile any uncached classes
-      let cache = design.storage[COMPILE_CACHE] as Record<string, AstNode[]>
+      let cache = design.storage![COMPILE_CACHE] as Record<string, AstNode[]>
       let uncached = classes.filter((name) => cache[name] === undefined)
 
       let css = design.candidatesToAst
