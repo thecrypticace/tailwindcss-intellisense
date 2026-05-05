@@ -50,7 +50,7 @@ function createLoader<T>({
 }) {
   let cacheKey = `${+Date.now()}`
 
-  async function loadFile(id: string, base: string, resourceType: string) {
+  async function loadFile(id: string, base: string, resourceType: string, canRetry: boolean) {
     try {
       let resolved = await resolver.resolveJsId(id, base)
 
@@ -80,6 +80,14 @@ function createLoader<T>({
               `[error] Cannot load '${id}' plugins inside configs or plugins is not currently supported`,
             )
           }
+
+          // We've run into a resolution error that might be resolved by loading
+          // virtual modules
+          if (await loadVirtualModulesOnDemand(importee) && canRetry) {
+            console.log("Retrying request for", id)
+
+            return loadFile(id, base, resourceType, false)
+          }
         }
       }
 
@@ -89,15 +97,47 @@ function createLoader<T>({
 
   if (legacy) {
     let baseDir = path.dirname(filepath)
-    return (id: string) => loadFile(id, baseDir, 'module')
+    return (id: string) => loadFile(id, baseDir, 'module', true)
   }
 
   return async (id: string, base: string, resourceType: string) => {
     return {
       base,
-      module: await loadFile(id, base, resourceType),
+      module: await loadFile(id, base, resourceType, true),
     }
   }
+}
+
+let virtualModules: Record<string, any> = {}
+
+async function loadVirtualModulesOnDemand(importee: string): Promise<boolean> {
+  // We've already loaded virtual modules so nothing for us to do
+  if (Object.keys(virtualModules).length !== 0) {
+    return false
+  }
+
+  let loadable = new Set([
+    'tailwindcss/colors',
+    'tailwindcss/defaultConfig',
+    'tailwindcss/defaultTheme',
+    'tailwindcss/resolveConfig',
+    'tailwindcss/plugin',
+  ])
+
+  // The request wasn't for a module we can handle, skip
+  if (!loadable.has(importee)) {
+    return false
+  }
+
+  console.log("Loading virtual modules")
+
+  virtualModules['tailwindcss/colors'] = await import('tailwindcss/colors')
+  virtualModules['tailwindcss/defaultConfig'] = await import('tailwindcss/defaultConfig')
+  virtualModules['tailwindcss/defaultTheme'] = await import('tailwindcss/defaultTheme')
+  virtualModules['tailwindcss/resolveConfig'] = await import('tailwindcss/resolveConfig')
+  virtualModules['tailwindcss/plugin'] = await import('tailwindcss/plugin')
+
+  return true
 }
 
 export async function loadDesignSystem(
@@ -135,6 +175,7 @@ export async function loadDesignSystem(
 
   // Create a Jiti instance that can be used to load plugins and config files
   let jiti = createJiti(__filename, {
+    virtualModules,
     moduleCache: false,
     fsCache: false,
   })
